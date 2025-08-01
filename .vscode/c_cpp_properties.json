@@ -1,0 +1,24 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "/usr/lib/modules/6.15.8-arch1-2/build/arch/x86/include",
+                "/usr/lib/modules/6.15.8-arch1-2/build/arch/x86/include/generated",
+                "/usr/lib/modules/6.15.8-arch1-2/build/include"
+            ],
+            "defines": [
+                "KBUILD_MODNAME=\"led-ugreen\"",
+                "__GNUC__",
+                "__KERNEL__",
+                "MODULE"
+            ],       
+            "compilerPath": "/usr/sbin/gcc",
+            "cStandard": "c17",
+            "cppStandard": "gnu++17",
+            "intelliSenseMode": "linux-gcc-x64"
+        }
+    ],
+    "version": 4
+}

@@ -6,13 +6,13 @@
 #include <linux/leds.h>
 
 
-#define MODULE_NAME             ( "led-ugreen" )
+#define MODULE_NAME             "led-ugreen"
+#define I2C_MAX_SCAN_ADAPTERS   16
+#define I2C_DEVICE_ADDR         0x3a
+#define SMBUS_ADAPTER_NAME      "SMBus I801"
 
-#define UGREEN_LED_SLAVE_ADDR       ( 0x3a )
-#define UGREEN_LED_SLAVE_NAME       ( "led-ugreen" )
-
-#define UGREEN_MAX_LED_NUMBER           ( 10 )
-#define UGREEN_LED_CHANGE_STATE_RETRY_COUNT   ( 5 )
+#define UGREEN_MAX_LED_NUMBER                   10
+#define UGREEN_LED_CHANGE_STATE_RETRY_COUNT     5
 
 #define UGREEN_LED_STATE_OFF        ( 0 )
 #define UGREEN_LED_STATE_ON         ( 1 )
@@ -39,6 +39,10 @@ struct ugreen_led_array {
     struct i2c_client *client;
     struct mutex mutex;
     struct ugreen_led_state state[UGREEN_MAX_LED_NUMBER];
+};
+
+struct ugreen_led_ctrl_dev {
+    struct i2c_client *client; 
 };
 
 

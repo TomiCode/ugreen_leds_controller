@@ -6,7 +6,7 @@
  *	Author: Yuhao Zhou <miskcoo@gmail.com>
  */
 
-#include "linux/stddef.h"
+#include <linux/stddef.h>
 #include <linux/init.h>
 #include <linux/version.h>
 #include <linux/module.h>
@@ -17,6 +17,8 @@
 #include <linux/proc_fs.h>
 #include <linux/i2c.h>
 #include <linux/i2c-dev.h>
+#include <linux/platform_device.h>
+
 #include "led-ugreen.h"
 
 #ifdef pr_fmt
@@ -27,6 +29,8 @@
 static bool verbose = false;
 module_param(verbose, bool, 0644);
 MODULE_PARM_DESC(verbose, "Enable verbose output");
+
+static struct platform_device *pdev;
 
 static struct ugreen_led_state *lcdev_to_ugreen_led_state(struct led_classdev *led_cdev) {
     return container_of(led_cdev, struct ugreen_led_state, cdev);
@@ -456,24 +460,52 @@ static struct attribute *ugreen_led_attrs[] = {
 
 ATTRIBUTE_GROUPS(ugreen_led);
 
-static int ugreen_led_probe(struct i2c_client *client) {
+const struct i2c_board_info i2c_info = {
+    I2C_BOARD_INFO("ugreen-leds", I2C_DEVICE_ADDR),
+};
 
-    pr_info ("i2c probed");
-
+static int ugreen_platform_leds_probe(struct platform_device *pdev)
+{
+    struct i2c_adapter *adapter;
+    struct i2c_client *client;
     struct ugreen_led_array *priv;
-    
+    struct ugreen_led_ctrl_dev *pdev_priv;
+
+    for (int i = 0; i < I2C_MAX_SCAN_ADAPTERS; i++) {
+        adapter = i2c_get_adapter(i);
+        if (!adapter) {
+            pr_info("no adapter found");
+            return -ENODEV;
+        } else if (strstr(adapter->name, SMBUS_ADAPTER_NAME)) {
+            pr_info("adapter found %s", adapter->name);
+            break;
+        }
+    }
+
+    if (!adapter)
+        return -ENODEV;
+
+    client = i2c_new_client_device(adapter, &i2c_info);
+    if (IS_ERR(client)) {
+        return PTR_ERR(client);
+    }
+
+    pdev_priv = devm_kzalloc(&pdev->dev, sizeof(struct ugreen_led_ctrl_dev), GFP_KERNEL);
+    if (!pdev_priv) {
+        return -ENOMEM;
+    }
+    pdev_priv->client = client;
+    platform_set_drvdata(pdev, pdev_priv);
+
     priv = devm_kzalloc(&client->dev, sizeof(struct ugreen_led_array), GFP_KERNEL);
     if (!priv) {
         return -ENOMEM;
     }
-
     priv->client = client;
-
     mutex_init(&priv->mutex);
 
     // probe and initialize leds
     for (int i = 0; i < UGREEN_MAX_LED_NUMBER; ++i) {
-
         priv->state[i].priv = priv;
         priv->state[i].led_id = i;
 
@@ -489,10 +521,8 @@ static int ugreen_led_probe(struct i2c_client *client) {
 
             ugreen_led_set_brightness_unlock(priv, i, 128);
             ugreen_led_set_color_unlock(priv, i, 0xff, 0xff, 0xff);
-
         }
     }
-
     i2c_set_clientdata(client, priv);
 
     mutex_lock(&priv->mutex);
@@ -525,79 +555,76 @@ static int ugreen_led_probe(struct i2c_client *client) {
         } else if (i >= 2) {
             state->cdev.default_trigger = "oneshot";
         }
-
         led_classdev_register(&client->dev, &state->cdev);
     }
-
     mutex_unlock(&priv->mutex);
 
     return 0;
 }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,1,0)
-static void
-#else
-static int
-#endif
-ugreen_led_remove(struct i2c_client *client) {
+static void ugreen_platform_leds_remove(struct platform_device *pdev)
+{
+    struct ugreen_led_array *priv;
+    struct ugreen_led_state *state;
+    struct ugreen_led_ctrl_dev *pdev_priv;
 
-    struct ugreen_led_array *priv = i2c_get_clientdata(client);
+    pdev_priv = platform_get_drvdata(pdev);
+    priv = i2c_get_clientdata(pdev_priv->client);
 
     for (int i = 0; i < UGREEN_MAX_LED_NUMBER; ++i) {
-
-        struct ugreen_led_state *state = priv->state + i;
+        state = priv->state + i;
         if (state->status == UGREEN_LED_STATE_INVALID)
             continue;
 
         led_classdev_unregister(&state->cdev);
     }
-
     mutex_destroy(&priv->mutex);
+    i2c_unregister_device(pdev_priv->client);
 
     pr_info ("i2c removed");
-
-#if LINUX_VERSION_CODE < KERNEL_VERSION(6,1,0)
-    return 0;
-#endif
 }
 
-static const struct i2c_device_id ugreen_led_id[] = {
-        { UGREEN_LED_SLAVE_NAME, 0 },
-        { }
-};
-
-MODULE_DEVICE_TABLE(i2c, ugreen_led_id);
-
-static struct i2c_driver ugreen_led_driver = {
-        .driver = {
-            .name   = UGREEN_LED_SLAVE_NAME,
-            .owner  = THIS_MODULE,
-        },
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6,3,0)
-        .probe          = ugreen_led_probe,
-#else
-        .probe_new      = ugreen_led_probe,
-#endif
-        .remove         = ugreen_led_remove,
-        .id_table       = ugreen_led_id,
+static struct platform_driver ugreen_platform_led_driver = {
+    .driver = {
+        .name = KBUILD_MODNAME,
+        .owner = THIS_MODULE,
+    },
+    .probe = ugreen_platform_leds_probe,
+    .remove = ugreen_platform_leds_remove,
 };
 
 
 static int __init ugreen_led_init(void) {
-    pr_info ("initializing");
-    i2c_add_driver(&ugreen_led_driver);
-    return 0;
+    int ret;
+    pr_info("initializing");
+
+    ret = platform_driver_register(&ugreen_platform_led_driver);
+    if (ret < 0) {
+        return ret;
+    }
+
+    pdev = platform_device_register_simple(KBUILD_MODNAME, -1, NULL, 0);
+    if (!IS_ERR(pdev)) {
+        return 0;
+    }
+    platform_driver_unregister(&ugreen_platform_led_driver);
+
+    return PTR_ERR(pdev);
 }
 
 static void __exit ugreen_led_exit(void) {
-    i2c_del_driver(&ugreen_led_driver);
-    pr_info ("exited");
+    struct device *dev;
+
+    while ((dev = platform_find_device_by_driver(NULL, &ugreen_platform_led_driver.driver))) {
+        platform_device_unregister(to_platform_device(dev));
+    }
+    platform_driver_unregister(&ugreen_platform_led_driver);
+ 
+    pr_info("ugreen_led_exit");
 }
 
 module_init(ugreen_led_init);
 module_exit(ugreen_led_exit);
-
 
 // Module metadata
 MODULE_AUTHOR("Yuhao Zhou <miskcoo@gmail.com>");

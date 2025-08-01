@@ -18,8 +18,8 @@ wget "${url_prefix}${deb_name}"
 mkdir tmp
 dpkg-deb -R ${deb_name} tmp
 
-git clone https://github.com/miskcoo/ugreen_dx4600_leds_controller.git
-cd ugreen_dx4600_leds_controller/kmod
+git clone -b wip-platform-driver https://github.com/TomiCode/ugreen_leds_controller.git
+cd ugreen_leds_controller/kmod
 
 cat <<EOF > Makefile
 TARGET = led-ugreen
@@ -35,5 +35,5 @@ make
 
 cd ../../../
 mkdir -p $1
-cp truenas_working/ugreen_dx4600_leds_controller/kmod/*.ko $1
+cp truenas_working/ugreen_leds_controller/kmod/*.ko $1
 rm -fr truenas_working
